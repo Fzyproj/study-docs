@@ -9,8 +9,8 @@
 2. 下载gradle 5.6.4版本
 
    - 路径：https://gradle.org/releases/
-   - 搜索 5.6找到对应的版本
-   - 下载: [binary-only](https://gradle.org/next-steps/?version=5.6.4&format=bin)版本即可
+   - 搜索 `5.6` 找到对应的版本
+   - 下载: [binary-only](https://gradle.org/next-steps/?version=5.6.4&format=bin) 版本即可
 
 3. 配置gradle环境变量
 
