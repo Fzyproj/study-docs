@@ -82,10 +82,6 @@ public class LogAspect {
         }
 ```
 
-6. 测试结果，如图所示
-
-![image-20200517192630982](C:\Users\lucfzy\AppData\Roaming\Typora\typora-user-images\image-20200517192630982.png)
-
 ## 注册中心
 
 ### nacos
@@ -107,14 +103,256 @@ public class LogAspect {
 
 **nacos的阈值保护和eureka的自我保护机制的异同？？？**
 
+### eureka
+
+> 作用： 微服务间通信框架，保证了微服务间可以进行联动，发送rest请求的基础，替代了restTemplate模板方法。
+
+注意： `默认配置下`，feign最大允许的服务间超时为**992ms**，大约是1s钟，这个配置记得一定要改，因为到生产环境上可能微服务间的调用最大忍耐限度为20s，1s钟这个时间单单查一个数据库的时间都比这个多了。
+
+---
+
+#### 调用方
+
+```java
+@EnableEurekaClient // 启用eureka client将自己注册进入eureka
+@EnableFeignClients(basePackages = {"com.example.server1.web.client"}) // 扫描带feign注解的包
+```
+
+feignclient 使用
+
+```java
+@org.springframework.cloud.openfeign.FeignClient(value = "server-provider", fallback = EurekaFeignServiceFailure.class) // 目标是请求server-provider微服务，如果服务间的请求时间超时，那么会触发熔断机制，默认的请求超时时间为992ms，超过这个时间，将会触发熔断，走fallback类-EurekaFeignServiceFailure.class。
+// 无需component注解，系统将类注入到容器中，后面通过autowired注解直接注入使用即可，原理就是使用了动态代理的方式。类似于mybatis中mapper。    
+public interface FeignClient {
+    @RequestMapping(value = "/query2",method = RequestMethod.GET)
+    public String queryServer02Info();
+}
+```
+
+熔断类**EurekaFeignServiceFailure**的实现
+
+```java
+@Service
+public class EurekaFeignServiceFailure implements FeignClient {
+    @Override
+    public String queryServer02Info() {
+        return "网络繁忙，请稍后再试-_-。PS：服务消费者自己提供的信息";
+    }
+}
+```
+
+> 上面注意如果要使用hytrix的话，一定要启动hytrix组件，具体百度一下吧。。
+
+---
+
+##### 问题
+
+1. 测试如果没有rollback熔断类，那么后果是
+
+![feign调用超时无熔断报错.png](https://image.lucfzy.com/blog/feign%E8%B0%83%E7%94%A8%E8%B6%85%E6%97%B6%E6%97%A0%E7%86%94%E6%96%AD%E6%8A%A5%E9%94%99.png)
+
+2. 如果不启用熔断配置，那么会有什么结果？
+   1. 首先pom中设置为false
+
+   ```java
+   feign:
+     hystrix:
+       enabled: true
+   ```
+
+   2. 此时如果被调用的接口发生超时，报错如下
+
+   ![hytrix开关未开发生了熔断报错.png](https://image.lucfzy.com/blog/hytrix%E5%BC%80%E5%85%B3%E6%9C%AA%E5%BC%80%E5%8F%91%E7%94%9F%E4%BA%86%E7%86%94%E6%96%AD%E6%8A%A5%E9%94%99.png)
+
+   > 从上面可以看出来，未配置hytrix开关和配置了hytrix开关报错是不同的，如果是read-timeout报错，那么则是因为hytrix开关没有打开，如果开关打开了，熔断发生那么会有两种情况，一种是配置了熔断类，一种是没有配置熔断类。那么配置了熔断类就走熔断类的代码，如果没有配置则会出现 no fallback available 报错信息提示。
+
+---
+
+#### 被调用方
+
+被调用方真的是出其不意的简单，我们基本上什么都不用做，正常去声明一个接口，这个接口我们可以去实现他，最终实现一下接口的功能即可。要注意的是，被调用方的微服务一定要注册进eureka中就可以了。
+
+其他的功能都不需要，很是方便简单。
+
+
+
+### hytrix
+
+> hytrix是一个用于解决服务间调用超时，异常等现象发生的时候，进行重试，以及在必要时刻进行断路处理的一种断路器。
+
+1、在spring中，hytrix的默认配置下的熔断超时时间为1s左右。对于该配置的修改尤为关键。
+
+问题1： 如何对hytrix的超时熔断时间进行修改？
+
+```xml
+# 单独设置这一项没有用，需要设置一下ribbon
+hystrix:
+  command:
+    default:
+      execution:
+        isolation:
+          thread:
+            timeoutInMilliseconds: 1500 # 修改了熔断时间为10s
+
+ribbon:
+  ReadTimeout: 10000 # 连接无误，被调用方代码超时，看这个时间。
+  ConnectTimeout: 10000 # 连接被调用方超时，看这个时间阈值。
+
+# 三个配置项共同构成了一条管道，管道能限制的最大超时时间，取决于最小的那一个。
+# 比方说： 如果微服务间的请求连接时间为ConnectTimeout小于配置的10s，那么进入下一个管道
+# 第二个则是ReadTimeout，如果发现对端的业务代码超过了10s，那么直接发生熔断，不会进入timeoutInMilliseconds的判断。
+# 如果前两个都逃过了，没问题，最后看timeoutInMilliseconds参数，如果时间超过1.5s，那么同样会触发熔断机制。
+```
+
+可以使用**@hystrixcommand**注解来自定义一个熔断方法。
+
+问题：如何指定commandkey进行超时熔断定制化？
+
+需求：利用**hystrix**设置一个方法，让这个方法的超时时间区别于其他方法。
+
+```java
+hystrix:
+  command:
+    default:
+      execution:
+        isolation:
+          thread:
+            timeoutInMilliseconds: 1000 # 修改了熔断时间为10s
+    helloService: # 该配置用于解决区分超时时间的个性化配置，如果commandkey为该配置将锁定其超时时间用下面的。
+      execution:
+        isolation:
+          thread:
+            timeoutInMilliseconds: 1500
+```
+
+请求方demo：
+
+```java
+@Component
+public class RestTemplateRequest {
+    @HystrixCommand(
+            commandKey = "helloService")
+    public String getResult() {
+        return new RestTemplate().getForObject("http://127.0.0.1:8081/query2", String.class);
+//        return new RestTemplate().getForObject("http://SERVER-PROVIDER/query2", String.class);
+    }
+}
+```
+
+上述代码表示：如果请求方请求被调用方的query2接口，那么将会进行接口调用判断，如果时间超过**1.5s**，那么将会触发熔断机制，因为该方法的**commandkey**为**helloService**。
+
+
+
+问题2： hytrix的熔断原理是什么？（底层实现）
+
+
+
+### feign
+
+问题1： @FeignClient注解只能用在注解上面吗？
+
+答：**是的，必须要用在接口上面。**如果不用在接口上，则会发生报错。
+
+![feign用在非接口类上的报错信息.png](https://image.lucfzy.com/blog/feign%E7%94%A8%E5%9C%A8%E9%9D%9E%E6%8E%A5%E5%8F%A3%E7%B1%BB%E4%B8%8A%E7%9A%84%E6%8A%A5%E9%94%99%E4%BF%A1%E6%81%AF.png)
+
+问题2：`@FeignClient`注解中的`configuration`变量作用是什么？
+
+1. 可以声明超时信息。
+2. 可以声明log级别。
+3. 可以声明超时重试时间和次数等。
+
+示例代码：
+
+```java
+@Configuration
+public class FeignConfiguration {
+    @Bean
+    public Retryer retryer() {
+        // 每隔2s重试一次，一共重试3次
+        return new Retryer.Default(100,2000,3);
+    }
+    @Bean
+    Logger.Level feignLoggerLevel() {
+
+        return Logger.Level.BASIC;
+
+    }
+}
+```
+
+针对client接口增加相应的配置**application.yml**中：
+
+```yml
+logging:
+  level:
+    com:
+      example:
+        server1:
+          web:
+            client:
+              FeignClient: debug # 设置log级别为debug，试了一下设置其他的级别貌似没用。。
+```
+
+**最终效果如图**：
+
+![logger打印日志如下.png](https://image.lucfzy.com/blog/logger%E6%89%93%E5%8D%B0%E6%97%A5%E5%BF%97%E5%A6%82%E4%B8%8B.png)
+
+**图中打印出了最基本的请求和响应信息。**
+
+### Spring Cloud GateWay Api
+
+> 旨在构造新一代的智能型网关，zuul网关的替代产品，增加了更多的功能，包括鉴权（token认证），限流，日志打印，智能路由等功能。
+
+**使用说明**
+
+1. 引入pom依赖
+
+```xml
+<parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.0.6.RELEASE</version>
+    <relativePath/> <!-- lookup parent from repository -->
+</parent>
+
+<properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <java.version>1.8</java.version>
+    <spring-cloud.version>Finchley.SR2</spring-cloud.version> <!-- 重点配置 -->
+</properties>
+
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-gateway</artifactId>
+</dependency>
+```
+
+注意此处的spring版本，建议用**2.0.x**版本的，并且项目并非是web项目，所以不需要加入**spring-boot-starter-web**。
+
+2. 编写application.yml文件
+
+```
+server:
+  port: 8080
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: neo_route
+          uri: http://lucfzy.com
+          predicates:
+            - Path=/**
+```
+
+意图： 匹配所有的请求，将路由指向http://lucfzy.com这个路径上，也就是路由重定向功能。
+
 # 搜索框架
 
 - ElasticSearch
 - logStash
 - kibana
 - Beats
-
-![image-20200425203729961](C:\Users\lucfzy\AppData\Roaming\Typora\typora-user-images\image-20200425203729961.png)
 
 # 消息队列
 
