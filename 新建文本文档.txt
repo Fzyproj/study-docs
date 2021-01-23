@@ -1,4 +1,4 @@
-1. 断点应该加载方法上或者方法中。
+﻿1. 断点应该加载方法上或者方法中。
 2. MyController为父类接口类，MyControllerImpl为其实现类，那么@RequestMapping请求写在接口方法上，@RestController写在实现类上。
 3. 接口应该是干净的，类上面不应该有spring的相关注解。而具体的注解都是在实现类中。
 4. Controller和Service都应该面向接口编程，而且都需要编写对应的实现类，而Dao层不需要编写实现类，那是因为Mybatis已经为接口进行封装了。但是为了标准，我们为dao层接口加上Repository接口即可，这样就不会出现编译报错的情况了。
@@ -30,3 +30,4 @@
 1. 上传博客
 2. autowired深入理解
 3. json的处理
+11
