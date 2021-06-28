@@ -1,0 +1,12 @@
+aop获取拦截方法参数值？
+pjp.getArgs()方法即可获取每个参数值，通过下标或者for循环来进行获取每个参数值。
+aop如何获取用户在注解输入的值？
+注意：FileExport是一个注解，@interface
+MethodSignature signature = (MethodSignature) pjp.getSignature();
+Method method = signature.getMethod();
+FileExport annotation = signature.getMethod().getAnnotation(FileExport.class);
+// 获取输入参数
+String inputCode = annotation.inputCode();
+String titleTop = annotation.titleTop();
+String[] titles = annotation.titles();
+String expFileName = annotation.expFileName();
