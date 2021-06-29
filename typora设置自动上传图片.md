@@ -145,7 +145,7 @@ ok这个时候已经完成了设置，点击第七步，测试服务器上传的
 
 5. 配置typora如下。
 
-   ![image-20210124164233838](https://image.lucfzy.com/blog/img/image-20210124164233838.png)
+   ![image-20210629220019707](https://image.lucfzy.com/blog/img/image-20210629220019707.png)
 
 6. 最后点击验证图片上传选项即可。
 
